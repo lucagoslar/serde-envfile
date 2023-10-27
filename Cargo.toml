@@ -1,0 +1,23 @@
+[package]
+name = "serde-envfile"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0 OR EUPL-1.2"
+repository = "https://github.com/lucagoslar/serde-envfile"
+authors = ["Luca Goslar <git@lucagoslar.de>"]
+description = """
+♻️ Deserialize and serialize environment variables.
+"""
+keywords = ["serde", "env", "serialization", "deserialization"]
+
+[dependencies]
+hashbrown = { version = "0.14", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+envy = "0.4"
+dotenvy = "0.15"
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[features]
+debug = []
