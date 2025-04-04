@@ -57,18 +57,18 @@ pub use de::from_env;
 pub use de::from_file;
 pub use de::from_str;
 
+pub use ser::Serializer;
 pub use ser::to_file;
 pub use ser::to_string;
-pub use ser::Serializer;
 
 pub use value::Value;
 
-pub use prefixed::prefixed;
 pub use prefixed::Prefixed;
+pub use prefixed::prefixed;
 
 #[cfg(test)]
 mod tests {
-    use crate::{from_str, to_string, Value};
+    use crate::{Value, from_str, to_string};
     use serde::{Deserialize, Serialize};
 
     #[test]

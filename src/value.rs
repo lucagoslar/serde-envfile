@@ -1,5 +1,5 @@
-use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,12 @@ use serde::{Deserialize, Serialize};
 pub struct Value {
     #[serde(flatten)]
     inner: HashMap<String, String>,
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Value {
