@@ -1,12 +1,18 @@
-use crate::error::{Error, Result};
-#[cfg(feature = "debug")]
-use log::debug;
-use serde::{Serialize, ser};
-use std::{fs::write, path::Path};
+use std::{fs::File, path::Path};
 
-#[cfg(not(feature = "debug"))]
-macro_rules! debug {
-    ($fmt:expr $(, $arg:expr)*) => {};
+use serde::ser::Serialize as _;
+
+use super::error::{Error, Result};
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "debug")] {
+        use log::debug;
+    } else {
+        #[allow(unused_macros)]
+        macro_rules! debug {
+            ($fmt:expr $(, $arg:expr)*) => {};
+        }
+    }
 }
 
 /// A serializer to transform Rust data into environment variables.
@@ -43,28 +49,23 @@ impl Serializer {
 /// # Example
 ///
 /// ```
-/// use serde_envfile::{Error, Value, to_string};
+/// use serde_envfile::{Value, to_string};
 ///
-/// fn to_string_example() -> Result<(), Error> {
-///     let mut value = Value::new();
-///     value.insert("KEY".into(), "VALUE".into());
-///     
-///     let value: String = to_string(&value)?;
-///     println!("{}", value);
+/// let value = Value::from_iter([("KEY", "VALUE")]);
 ///
-///     Ok(())
-/// }
+/// let value = to_string(&value).expect("Failed to serialize to string");
+/// println!("{}", value);
 /// ```
 pub fn to_string<T>(v: &T) -> Result<String>
 where
-    T: ser::Serialize,
+    T: serde::ser::Serialize,
 {
     to_string_inner(None, v)
 }
 
 pub fn to_string_inner<T>(prefix: Option<&str>, v: &T) -> Result<String>
 where
-    T: ser::Serialize,
+    T: serde::ser::Serialize,
 {
     let mut serializer = Serializer::new(prefix);
     v.serialize(&mut serializer)?;
@@ -72,38 +73,71 @@ where
     Ok(serializer.output)
 }
 
-/// Serialize data into an environment variable file.
+/// Serialize data to a writer that implements `std::io::Write`.
 ///
 /// # Example
 ///
 /// ```
-/// use std::path::PathBuf;
-/// use serde_envfile::{Error, Value, to_file};
+/// use std::io::Cursor;
+/// use serde_envfile::{Value, to_writer};
 ///
-/// fn to_string_example() -> Result<(), Error> {
-///     let mut value = Value::new();
-///     value.insert("KEY".into(), "VALUE".into());
-///     
-///     to_file(&PathBuf::from(".env"), &value)?;
+/// let value = Value::from_iter([("KEY", "VALUE")]);
 ///
-///     Ok(())
-/// }
+/// let mut writer = Cursor::new(Vec::new());
+/// to_writer(&mut writer, &value).expect("Failed to serialize to writer");
+///
+/// let output = String::from_utf8(writer.into_inner()).expect("Invalid UTF-8 sequence");
+/// println!("{}", output);
 /// ```
-pub fn to_file<T>(p: &Path, v: &T) -> Result<()>
+pub fn to_writer<W, T>(writer: W, v: &T) -> Result<()>
 where
-    T: ser::Serialize,
+    W: std::io::Write,
+    T: serde::ser::Serialize,
 {
-    to_file_inner(None, p, v)
+    to_writer_inner(None, writer, v)
 }
 
-pub fn to_file_inner<T>(prefix: Option<&str>, p: &Path, v: &T) -> Result<()>
+pub(crate) fn to_writer_inner<W, T>(prefix: Option<&str>, mut writer: W, v: &T) -> Result<()>
 where
-    T: ser::Serialize,
+    W: std::io::Write,
+    T: serde::ser::Serialize,
 {
-    write(p, to_string_inner(prefix, v)?).map_err(|e| Error::Message(e.to_string()))
+    writer
+        .write_all(to_string_inner(prefix, v)?.as_bytes())
+        .map_err(Error::new)
 }
 
-impl ser::Serializer for &mut Serializer {
+/// Serialize data into an environment variable file.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::path::PathBuf;
+/// use serde_envfile::{Value, to_file};
+///
+/// let value = Value::from_iter([("KEY", "VALUE")]);
+/// let path = PathBuf::from(".env");
+///
+/// to_file(&path, &value).expect("Failed to serialize to file");
+/// ```
+pub fn to_file<P, T>(path: P, v: &T) -> Result<()>
+where
+    P: AsRef<Path>,
+    T: serde::ser::Serialize,
+{
+    to_file_inner(None, path, v)
+}
+
+pub fn to_file_inner<P, T>(prefix: Option<&str>, path: P, v: &T) -> Result<()>
+where
+    P: AsRef<Path>,
+    T: serde::ser::Serialize,
+{
+    let file = File::create(path).map_err(Error::new)?;
+    to_writer_inner(prefix, file, v)
+}
+
+impl serde::ser::Serializer for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -218,7 +252,7 @@ impl ser::Serializer for &mut Serializer {
 
     fn serialize_some<T>(self, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize some");
         value.serialize(self)
@@ -229,8 +263,8 @@ impl ser::Serializer for &mut Serializer {
         Ok(())
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<()> {
-        debug!("serialize unit struct: {}", name);
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<()> {
+        debug!("serialize unit struct: {}", _name);
         self.serialize_unit()
     }
 
@@ -244,11 +278,11 @@ impl ser::Serializer for &mut Serializer {
         self.serialize_str(variant)
     }
 
-    fn serialize_newtype_struct<T>(self, name: &'static str, value: &T) -> Result<()>
+    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
-        debug!("serialize newtype struct: {}", name);
+        debug!("serialize newtype struct: {}", _name);
         value.serialize(self)
     }
 
@@ -260,7 +294,7 @@ impl ser::Serializer for &mut Serializer {
         value: &T,
     ) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize newtype struct variant: {}", variant);
         if self.sequence {
@@ -318,30 +352,30 @@ impl ser::Serializer for &mut Serializer {
         Ok(self)
     }
 
-    fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
-        debug!("serialize struct: {}", name);
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
+        debug!("serialize struct: {}", _name);
         self.serialize_map(Some(len))
     }
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        debug!("serialize struct variant: {}/{}", name, variant);
+        debug!("serialize struct variant: {}/{}", _name, _variant);
         self.serialize_map(Some(len))
     }
 }
 
-impl ser::SerializeSeq for &mut Serializer {
+impl serde::ser::SerializeSeq for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serializing sequence element");
         let r = value.serialize(&mut **self);
@@ -358,13 +392,13 @@ impl ser::SerializeSeq for &mut Serializer {
     }
 }
 
-impl ser::SerializeTuple for &mut Serializer {
+impl serde::ser::SerializeTuple for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple element");
         let r = value.serialize(&mut **self);
@@ -381,13 +415,13 @@ impl ser::SerializeTuple for &mut Serializer {
     }
 }
 
-impl ser::SerializeTupleStruct for &mut Serializer {
+impl serde::ser::SerializeTupleStruct for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple struct field");
         let r = value.serialize(&mut **self);
@@ -403,13 +437,13 @@ impl ser::SerializeTupleStruct for &mut Serializer {
     }
 }
 
-impl ser::SerializeTupleVariant for &mut Serializer {
+impl serde::ser::SerializeTupleVariant for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple variant field");
         let r = value.serialize(&mut **self);
@@ -425,13 +459,13 @@ impl ser::SerializeTupleVariant for &mut Serializer {
     }
 }
 
-impl ser::SerializeMap for &mut Serializer {
+impl serde::ser::SerializeMap for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_key<T>(&mut self, key: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize map key");
         serialize_map_struct_key(self, key)
@@ -439,7 +473,7 @@ impl ser::SerializeMap for &mut Serializer {
 
     fn serialize_value<T>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize map value");
         serialize_map_struct_value(self, value)
@@ -452,13 +486,13 @@ impl ser::SerializeMap for &mut Serializer {
     }
 }
 
-impl ser::SerializeStruct for &mut Serializer {
+impl serde::ser::SerializeStruct for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serializing struct field");
 
@@ -472,13 +506,13 @@ impl ser::SerializeStruct for &mut Serializer {
     }
 }
 
-impl ser::SerializeStructVariant for &mut Serializer {
+impl serde::ser::SerializeStructVariant for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
-        T: ?Sized + ser::Serialize,
+        T: ?Sized + serde::ser::Serialize,
     {
         debug!("serializing struct variant field");
 
@@ -494,7 +528,7 @@ impl ser::SerializeStructVariant for &mut Serializer {
 
 fn serialize_field<T>(ser: &'_ mut &'_ mut Serializer, key: &'static str, value: &T) -> Result<()>
 where
-    T: ?Sized + ser::Serialize,
+    T: ?Sized + serde::ser::Serialize,
 {
     serialize_map_struct_key(ser, key)?;
     serialize_map_struct_value::<T>(ser, value)?;
@@ -503,7 +537,7 @@ where
 
 fn serialize_map_struct_key<T>(ser: &'_ mut &'_ mut Serializer, key: &T) -> Result<()>
 where
-    T: ?Sized + ser::Serialize,
+    T: ?Sized + serde::ser::Serialize,
 {
     if ser.sequence {
         return Err(Error::UnsupportedStructureInSeq);
@@ -524,7 +558,7 @@ where
 
 fn serialize_map_struct_value<T>(ser: &'_ mut &'_ mut Serializer, value: &T) -> Result<()>
 where
-    T: ?Sized + ser::Serialize,
+    T: ?Sized + serde::ser::Serialize,
 {
     if ser.sequence {
         return Err(Error::UnsupportedStructureInSeq);
@@ -540,119 +574,130 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde::Deserialize;
-    use std::collections::HashMap;
-    use std::fs::read_to_string;
-    use tempfile::NamedTempFile;
+    use std::{collections::HashMap, io::Cursor};
 
+    use super::{to_file, to_string, to_writer};
     use crate::{Value, from_str};
 
     #[test]
-    fn to_string_test() {
-        let mut env = Value::new();
-        env.insert("HELLO".into(), "WORLD".into());
+    fn serialize_to_string_value() {
+        //* Given
+        // TODO: Review this test case, the key is "hello" but the expected is "HELLO"
+        let env = Value::from_iter([("hello", "WORLD")]);
 
-        let s = to_string(&env).unwrap();
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
 
-        assert_eq!("HELLO=\"WORLD\"", s);
+        //* Then
+        let expected = "HELLO=\"WORLD\"";
+        assert_eq!(expected, &output);
+
+        // Assert the deserialized value is equal to the original value
+        let deserialized = from_str::<Value>(&output).expect("Failed to deserialize to value");
+        assert_eq!(deserialized, env);
     }
 
     #[test]
-    fn to_file_test() {
-        let mut env = Value::new();
-        env.insert("HELLO".into(), "WORLD".into());
+    fn serialize_to_string_struct() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct StructTestNested {
+            c: u8,
+        }
 
-        let file = NamedTempFile::new().unwrap();
-        to_file(file.path(), &env).unwrap();
-        let s = read_to_string(file.path()).unwrap();
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct StructTest {
+            a: u8,
+            b: StructTestNested,
+        }
 
-        assert_eq!("HELLO=\"WORLD\"", s);
-    }
-
-    #[derive(Debug, Serialize)]
-    struct StructTestNested {
-        c: u8,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct StructTest {
-        a: u8,
-        b: StructTestNested,
-    }
-
-    #[test]
-    fn struct_test() {
         let env = StructTest {
             a: 1,
             b: StructTestNested { c: 2 },
         };
 
-        let s = to_string(&env).unwrap();
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
 
-        assert_eq!("A=1\nB_C=2", s);
-    }
-
-    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-    struct SeqTest {
-        a: Vec<String>,
-        b: String,
+        //* Then
+        assert_eq!("A=1\nB_C=2", output);
     }
 
     #[test]
-    fn seq_test() {
+    fn serialize_to_string_sequence() {
+        //* Given
+
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct SeqTest {
+            a: Vec<String>,
+            b: String,
+        }
+
         let env = SeqTest {
             a: vec!["HELLO".into(), "WORLD".into()],
             b: "control value".into(),
         };
 
-        let s = to_string(&env).unwrap();
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
+
+        //* Then
         let expected = "A=\"HELLO\",\"WORLD\"\nB=\"control value\"";
-        assert_eq!(expected, &s);
-        assert_eq!(from_str::<SeqTest>(expected).unwrap(), env);
-    }
+        assert_eq!(expected, &output);
 
-    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-    #[allow(clippy::upper_case_acronyms)]
-    enum EnumTestEnum {
-        HELLO,
-        WORLD,
-    }
-
-    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-    struct EnumTest {
-        a: EnumTestEnum,
+        // Assert the deserialized value is equal to the original value
+        let deserialized = from_str::<SeqTest>(&output).expect("Failed to deserialize to struct");
+        assert_eq!(deserialized, env);
     }
 
     #[test]
-    fn enum_test() {
+    fn serialize_to_string_enum() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        enum EnumTestEnum {
+            HELLO,
+            WORLD,
+        }
+
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct EnumTest {
+            a: EnumTestEnum,
+        }
+
         let env = EnumTest {
             a: EnumTestEnum::HELLO,
         };
 
-        let s = to_string(&env).unwrap();
-        let expected = "A=\"HELLO\"";
-        assert_eq!(expected, &s);
-        assert_eq!(from_str::<EnumTest>(&s).unwrap(), env);
-    }
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
 
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct NumberTest {
-        u8: u8,
-        u16: u16,
-        u32: u32,
-        u64: u64,
-        i8: i8,
-        i16: i16,
-        i32: i32,
-        i64: i64,
-        f32: f32,
-        f64: f64,
-        usize: usize,
+        //* Then
+        let expected = "A=\"HELLO\"";
+        assert_eq!(expected, &output);
+
+        // Assert the deserialized value is equal to the original value
+        let deserialized = from_str::<EnumTest>(&output).expect("Failed to deserialize to struct");
+        assert_eq!(deserialized, env);
     }
 
     #[test]
-    fn number_test() {
+    fn serialize_to_string_numbers() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct NumberTest {
+            u8: u8,
+            u16: u16,
+            u32: u32,
+            u64: u64,
+            i8: i8,
+            i16: i16,
+            i32: i32,
+            i64: i64,
+            f32: f32,
+            f64: f64,
+            usize: usize,
+        }
+
         let env = NumberTest {
             u8: 255,
             u16: 65535,
@@ -667,82 +712,144 @@ mod tests {
             usize: 18446744073709551615,
         };
 
-        let s = to_string(&env).unwrap();
-        let expected = "U8=255\nU16=65535\nU32=4294967295\nU64=18446744073709551615\nI8=-128\nI16=-32768\nI32=-2147483648\nI64=-9223372036854775808\nF32=-3.5\nF64=3.5\nUSIZE=18446744073709551615";
-        assert_eq!(expected, &s);
-        assert_eq!(from_str::<NumberTest>(&s).unwrap(), env);
-    }
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
 
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct BoolTest {
-        a: bool,
-        b: bool,
+        //* Then
+        let expected = "U8=255\nU16=65535\nU32=4294967295\nU64=18446744073709551615\nI8=-128\nI16=-32768\nI32=-2147483648\nI64=-9223372036854775808\nF32=-3.5\nF64=3.5\nUSIZE=18446744073709551615";
+        assert_eq!(expected, &output);
+
+        // Assert the deserialized value is equal to the original value
+        let deserialized = from_str::<NumberTest>(&output).expect("Failed to deserialize to struct");
+        assert_eq!(deserialized, env);
     }
 
     #[test]
-    fn bool_test() {
+    fn serialize_to_string_bool() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct BoolTest {
+            a: bool,
+            b: bool,
+        }
+
         let env = BoolTest { a: true, b: false };
 
-        let s = to_string(&env).unwrap();
-        let expected = "A=true\nB=false";
-        assert_eq!(expected, &s);
-        assert_eq!(from_str::<BoolTest>(&s).unwrap(), env);
-    }
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
 
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct OptionTest {
-        a: Option<String>,
-        b: Option<String>,
+        //* Then
+        let expected = "A=true\nB=false";
+        assert_eq!(expected, &output);
+
+        // Assert the deserialized value is equal to the original value
+        let deserialized = from_str::<BoolTest>(&output).expect("Failed to deserialize to struct");
+        assert_eq!(deserialized, env);
     }
 
     #[test]
-    fn option_test() {
+    fn serialize_to_string_option() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct OptionTest {
+            a: Option<String>,
+            b: Option<String>,
+        }
+
         let env = OptionTest {
             a: Some("HELLO".into()),
             b: None,
         };
 
-        let s = to_string(&env).unwrap();
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
+
+        //* Then
         let expected = "A=\"HELLO\"\nB=";
-        assert_eq!(expected, &s);
-        assert_eq!(from_str::<OptionTest>(&s).unwrap().a, env.a);
+        assert_eq!(expected, &output);
 
-        // envy deserializes "" with Some()
-    }
-
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct MapTest {
-        #[serde(flatten)]
-        inner: HashMap<String, String>,
+        // Assert the deserialized value is equal to the original value
+        // NOTE: envy deserializes "" with Some()
+        let deserialized = from_str::<OptionTest>(&output).expect("Failed to deserialize to struct");
+        assert_eq!(deserialized.a, env.a);
     }
 
     #[test]
-    fn map_test() {
+    fn serialize_to_string_hashmap() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct MapTest {
+            #[serde(flatten)]
+            inner: HashMap<String, String>,
+        }
+
         let mut env = MapTest {
             inner: HashMap::new(),
         };
         env.inner.insert("hello".into(), "WORLD".into());
 
-        let s = to_string(&env).unwrap();
-        let expected = "HELLO=\"WORLD\"";
-        assert_eq!(expected, &s);
-        assert_eq!(from_str::<MapTest>(&s).unwrap(), env);
-    }
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
 
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct NestedMapTest {
-        inner: HashMap<String, String>,
+        //* Then
+        let expected = "HELLO=\"WORLD\"";
+        assert_eq!(expected, &output);
+
+        // Assert the deserialized value is equal to the original value
+        let deserialized = from_str::<MapTest>(&output).expect("Failed to deserialize to struct");
+        assert_eq!(deserialized, env);
     }
 
     #[test]
-    fn nested_map_test() {
-        let mut env = NestedMapTest {
-            inner: HashMap::new(),
-        };
-        env.inner.insert("hello".into(), "WORLD".into());
+    fn serialize_to_string_nested_hashmap() {
+        //* Given
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct NestedMapTest {
+            inner: HashMap<String, String>,
+        }
 
-        let s = to_string(&env).unwrap();
+        let env = NestedMapTest {
+            inner: HashMap::from([("HELLO".into(), "WORLD".into())]),
+        };
+
+        //* When
+        let output = to_string(&env).expect("Failed to serialize to string");
+
+        //* Then
         let expected = "INNER_HELLO=\"WORLD\"";
-        assert_eq!(expected, &s);
+        assert_eq!(expected, &output);
+    }
+
+    #[test]
+    fn serialize_to_writer() {
+        //* Given
+        let env = Value::from_iter([("HELLO", "WORLD")]);
+
+        let mut writer = Cursor::new(Vec::new());
+
+        //* When
+        to_writer(&mut writer, &env).expect("Failed to serialize to writer");
+
+        //* Then
+        let expected_output = "HELLO=\"WORLD\"";
+        let output = String::from_utf8(writer.into_inner()).expect("Invalid UTF-8 sequence");
+        assert_eq!(expected_output, output);
+    }
+
+    #[test]
+    fn serialize_to_file() {
+        //* Given
+        let env = Value::from_iter([("HELLO", "WORLD")]);
+
+        // Create a temp file in the system's temp directory, so if the test fails, the file does not clutter the current directory
+        let file = tempfile::NamedTempFile::new_in(std::env::temp_dir()).expect("Failed to create temp file");
+
+        //* When
+        to_file(&file.path(), &env).expect("Failed to serialize to file");
+
+        //* Then
+        let expected_output = "HELLO=\"WORLD\"";
+        let output = std::fs::read_to_string(file.path()).expect("Failed to read file");
+        assert_eq!(expected_output, output);
     }
 }

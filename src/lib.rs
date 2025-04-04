@@ -51,20 +51,11 @@ pub(crate) mod prefixed;
 pub(crate) mod ser;
 pub(crate) mod value;
 
+pub use de::{from_env, from_file, from_reader, from_str};
 pub use error::Error;
-
-pub use de::from_env;
-pub use de::from_file;
-pub use de::from_str;
-
-pub use ser::Serializer;
-pub use ser::to_file;
-pub use ser::to_string;
-
+pub use prefixed::{Prefixed, prefixed};
+pub use ser::{Serializer, to_file, to_string, to_writer};
 pub use value::Value;
-
-pub use prefixed::Prefixed;
-pub use prefixed::prefixed;
 
 #[cfg(test)]
 mod tests {
