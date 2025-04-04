@@ -1,10 +1,13 @@
 use serde::{ser, Serialize};
-use std::{env, fs::write, path::Path};
+use std::{fs::write, path::Path};
+#[cfg(feature = "debug")]
+use log::debug;
+use crate::error::{Error, Result};
 
-use crate::{
-    error::{Error, Result},
-    log::debug,
-};
+#[cfg(not(feature = "debug"))]
+macro_rules! debug {
+    ($fmt:expr $(, $arg:expr)*) => {};
+}
 
 /// A serializer to transform Rust data into environment variables.
 pub struct Serializer {
@@ -17,7 +20,7 @@ pub struct Serializer {
 }
 
 impl Serializer {
-    fn new<'a>(prefix: Option<&'a str>) -> Self {
+    fn new(prefix: Option<&str>) -> Self {
         Self {
             output: String::new(),
             base_prefix: prefix.unwrap_or("").to_uppercase().into(),
@@ -59,7 +62,7 @@ where
     to_string_inner(None, v)
 }
 
-pub fn to_string_inner<'a, T>(prefix: Option<&'a str>, v: &T) -> Result<String>
+pub fn to_string_inner<T>(prefix: Option<&str>, v: &T) -> Result<String>
 where
     T: ser::Serialize,
 {
@@ -98,42 +101,6 @@ where
     T: ser::Serialize,
 {
     write(p, to_string_inner(prefix, v)?).map_err(|e| Error::Message(e.to_string()))
-}
-
-/// Serialize data into the environment of the application running.
-///
-/// # Example
-///
-/// ```
-/// use serde_envfile::{Error, Value, to_env};
-///
-/// fn to_env_example() -> Result<(), Error> {
-///     let mut value = Value::new();
-///     value.insert("KEY".into(), "VALUE".into());
-///     
-///     to_env(&value)?;
-///
-///     Ok(())
-/// }
-/// ```
-pub fn to_env<T>(v: &T) -> Result<()>
-where
-    T: ser::Serialize,
-{
-    to_env_inner(None, v)
-}
-
-pub fn to_env_inner<'a, T>(prefix: Option<&'a str>, v: &T) -> Result<()>
-where
-    T: ser::Serialize,
-{
-    let s = to_string_inner(prefix, v)?;
-    for r in dotenvy::from_read_iter(s.as_bytes()) {
-        let (key, value) = r.map_err(|e| Error::new(e))?;
-        env::set_var(key, value);
-    }
-
-    Ok(())
 }
 
 impl<'a> ser::Serializer for &'a mut Serializer {
@@ -574,22 +541,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hashbrown::HashMap;
     use serde::Deserialize;
-    use std::{env::var, fs::read_to_string};
+    use std::collections::HashMap;
+    use std::fs::read_to_string;
     use tempfile::NamedTempFile;
 
     use crate::{from_str, Value};
-
-    #[test]
-    fn to_env_test() {
-        let mut env = Value::new();
-        env.insert("SERDE_ENVFILE".into(), "HELLO WORLD".into());
-
-        to_env(&env).unwrap();
-
-        assert_eq!(var("SERDE_ENVFILE").unwrap(), "HELLO WORLD");
-    }
 
     #[test]
     fn to_string_test() {

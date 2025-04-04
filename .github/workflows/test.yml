@@ -34,5 +34,7 @@ jobs:
         run: cargo doc --all-features --no-deps
       - name: Run tests
         run: cargo test --verbose
+      - name: Run tests (dep:log)
+        run: cargo test --features debug
       - name: Test publish
         run: cargo publish --dry-run

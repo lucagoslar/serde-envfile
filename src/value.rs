@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
+use std::collections::HashMap;
 
-use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Flexible representation of environment variables.

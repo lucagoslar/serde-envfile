@@ -157,7 +157,9 @@ mod tests {
 
     #[test]
     fn from_env_test() {
-        set_var("SERDE_ENVFILE", "HELLO WORLD");
+        unsafe {
+            set_var("SERDE_ENVFILE", "HELLO WORLD");
+        }
 
         let env: Value = from_env().unwrap();
 

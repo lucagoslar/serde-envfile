@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::de::{from_env_inner, from_file_inner, from_str_inner};
 use crate::error::Result;
-use crate::ser::{to_env_inner, to_file_inner, to_string_inner};
+use crate::ser::{to_file_inner, to_string_inner};
 use serde::{de, ser};
 
 /// Helper structure to work with prefixes more efficiently.
@@ -38,13 +38,6 @@ impl<'a> Prefixed<'a> {
         to_string_inner(Some(self.0), v)
     }
 
-    pub fn to_env<T>(&self, v: &T) -> Result<()>
-    where
-        T: ser::Serialize,
-    {
-        to_env_inner(Some(self.0), v)
-    }
-
     pub fn to_file<T>(&self, path: &Path, v: &T) -> Result<()>
     where
         T: ser::Serialize,
@@ -54,7 +47,7 @@ impl<'a> Prefixed<'a> {
 }
 
 /// Instantiates [Prefixed] from which values can be both serialized and deserialized.
-pub fn prefixed<'a>(prefix: &'a str) -> Prefixed {
+pub fn prefixed(prefix: &str) -> Prefixed {
     Prefixed(prefix)
 }
 

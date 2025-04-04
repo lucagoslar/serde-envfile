@@ -47,7 +47,6 @@
 #[doc(hidden)]
 pub mod de;
 pub(crate) mod error;
-pub(crate) mod log;
 pub(crate) mod prefixed;
 pub(crate) mod ser;
 pub(crate) mod value;
@@ -58,7 +57,6 @@ pub use de::from_env;
 pub use de::from_file;
 pub use de::from_str;
 
-pub use ser::to_env;
 pub use ser::to_file;
 pub use ser::to_string;
 pub use ser::Serializer;
