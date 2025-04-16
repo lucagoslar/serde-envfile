@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "preserve_order")] {
         use indexmap::IndexMap as Map;
@@ -43,12 +40,6 @@ impl Value {
     /// Internally, the [`Value`] object uses a map to store the key-value pairs.
     pub fn new() -> Self {
         Self(Default::default())
-    }
-}
-
-impl Default for Value {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
