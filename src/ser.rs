@@ -1,8 +1,8 @@
-use serde::{ser, Serialize};
-use std::{fs::write, path::Path};
+use crate::error::{Error, Result};
 #[cfg(feature = "debug")]
 use log::debug;
-use crate::error::{Error, Result};
+use serde::{Serialize, ser};
+use std::{fs::write, path::Path};
 
 #[cfg(not(feature = "debug"))]
 macro_rules! debug {
@@ -23,7 +23,7 @@ impl Serializer {
     fn new(prefix: Option<&str>) -> Self {
         Self {
             output: String::new(),
-            base_prefix: prefix.unwrap_or("").to_uppercase().into(),
+            base_prefix: prefix.unwrap_or("").to_uppercase(),
             prefix: "".into(),
             key: false,
             sequence: false,
@@ -96,14 +96,14 @@ where
     to_file_inner(None, p, v)
 }
 
-pub fn to_file_inner<'a, T>(prefix: Option<&'a str>, p: &Path, v: &T) -> Result<()>
+pub fn to_file_inner<T>(prefix: Option<&str>, p: &Path, v: &T) -> Result<()>
 where
     T: ser::Serialize,
 {
     write(p, to_string_inner(prefix, v)?).map_err(|e| Error::Message(e.to_string()))
 }
 
-impl<'a> ser::Serializer for &'a mut Serializer {
+impl ser::Serializer for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -184,7 +184,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
         if self.key {
             let mut key = self.base_prefix.clone();
-            if self.prefix.len() > 0 {
+            if !self.prefix.is_empty() {
                 self.prefix.push('_');
             }
             self.prefix += &v.to_uppercase();
@@ -198,9 +198,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
             }
 
             self.output += &key;
-        } else if v.len() > 0 {
+        } else if !v.is_empty() {
             self.output += "\"";
-            self.output += &v;
+            self.output += v;
             self.output += "\"";
         }
         Ok(())
@@ -335,7 +335,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeSeq for &'a mut Serializer {
+impl ser::SerializeSeq for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -358,7 +358,7 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeTuple for &'a mut Serializer {
+impl ser::SerializeTuple for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -381,7 +381,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
+impl ser::SerializeTupleStruct for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -403,7 +403,7 @@ impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {
+impl ser::SerializeTupleVariant for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -425,7 +425,7 @@ impl<'a> ser::SerializeTupleVariant for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeMap for &'a mut Serializer {
+impl ser::SerializeMap for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -452,7 +452,7 @@ impl<'a> ser::SerializeMap for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeStruct for &'a mut Serializer {
+impl ser::SerializeStruct for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -472,7 +472,7 @@ impl<'a> ser::SerializeStruct for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
+impl ser::SerializeStructVariant for &mut Serializer {
     type Ok = ();
     type Error = Error;
 
@@ -546,7 +546,7 @@ mod tests {
     use std::fs::read_to_string;
     use tempfile::NamedTempFile;
 
-    use crate::{from_str, Value};
+    use crate::{Value, from_str};
 
     #[test]
     fn to_string_test() {
@@ -564,7 +564,7 @@ mod tests {
         env.insert("HELLO".into(), "WORLD".into());
 
         let file = NamedTempFile::new().unwrap();
-        to_file(&file.path(), &env).unwrap();
+        to_file(file.path(), &env).unwrap();
         let s = read_to_string(file.path()).unwrap();
 
         assert_eq!("HELLO=\"WORLD\"", s);
@@ -613,6 +613,7 @@ mod tests {
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+    #[allow(clippy::upper_case_acronyms)]
     enum EnumTestEnum {
         HELLO,
         WORLD,

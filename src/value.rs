@@ -1,5 +1,3 @@
-//! The Value object, a loosely typed way of representing any valid envfile content.
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "preserve_order")] {
         use indexmap::IndexMap as Map;
@@ -30,18 +28,18 @@ cfg_if::cfg_if! {
 #[serde(transparent)]
 pub struct Value(Map<String, String>);
 
+impl Default for Value {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Value {
     /// Create an empty [`Value`].
     ///
     /// Internally, the [`Value`] object uses a map to store the key-value pairs.
     pub fn new() -> Self {
         Self(Default::default())
-    }
-}
-
-impl Default for Value {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

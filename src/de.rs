@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::de;
 
-use crate::{error::Result, Error};
+use crate::{Error, error::Result};
 
 pub fn from_iter<T, Iter>(iter: Iter) -> Result<T>
 where
@@ -12,17 +12,20 @@ where
     from_iter_inner::<T, Iter>(None, iter)
 }
 
-pub fn from_iter_inner<'a, T, Iter>(prefix: Option<&'a str>, iter: Iter) -> Result<T>
+pub fn from_iter_inner<T, Iter>(prefix: Option<&str>, iter: Iter) -> Result<T>
 where
     T: de::DeserializeOwned,
     Iter: IntoIterator<Item = (String, String)>,
 {
-    (if prefix.is_some() {
-        envy::prefixed(prefix.unwrap().to_uppercase()).from_iter::<_, T>(iter)
-    } else {
-        envy::from_iter::<_, T>(iter)
-    })
-    .map_err(|e| Error::new(e))
+    match prefix {
+        Some(pref) => {
+            envy::prefixed(pref.to_uppercase()).from_iter::<_, T>(iter)
+        }
+        None => {
+            // No prefix provided, use default behavior
+            envy::from_iter::<_, T>(iter)
+        }
+    }.map_err(Error::new)
 }
 
 /// Deserialize program-available environment variables into an instance of type `T`.
@@ -56,16 +59,18 @@ where
     from_env_inner(None)
 }
 
-pub fn from_env_inner<'a, T>(prefix: Option<&'a str>) -> Result<T>
+pub fn from_env_inner<T>(prefix: Option<&str>) -> Result<T>
 where
     T: de::DeserializeOwned,
 {
-    (if prefix.is_some() {
-        envy::prefixed(prefix.unwrap().to_uppercase()).from_env::<T>()
-    } else {
-        envy::from_env::<T>()
-    })
-    .map_err(|e| Error::new(e))
+    match prefix {
+        Some(pref) => {
+            envy::prefixed(pref.to_uppercase()).from_env::<T>()
+        }
+        None => {
+            envy::from_env::<T>()
+        }
+    }.map_err(Error::new)
 }
 
 /// Deserialize environment variables from a string into an instance of type `T`.
@@ -83,7 +88,7 @@ where
 ///     Ok(())
 /// }
 /// ```
-pub fn from_str<'a, T>(input: &'a str) -> Result<T>
+pub fn from_str<T>(input: &str) -> Result<T>
 where
     T: de::DeserializeOwned,
 {
@@ -96,12 +101,12 @@ where
 {
     let mut env = Vec::new();
 
-    for pair in dotenvy::from_read_iter(input.as_bytes()).into_iter() {
-        let (key, value) = pair.map_err(|e| Error::new(e))?;
+    for pair in dotenvy::from_read_iter(input.as_bytes()) {
+        let (key, value) = pair.map_err(Error::new)?;
         env.push((key, value));
     }
 
-    from_iter_inner::<T, _>(prefix, env.into_iter())
+    from_iter_inner::<T, _>(prefix, env)
 }
 
 /// Deserialize an environment variable file into an instance of type `T`.
@@ -119,40 +124,40 @@ where
 ///     Ok(())
 /// }
 /// ```
-pub fn from_file<'a, T>(path: &Path) -> Result<T>
+pub fn from_file<T>(path: &Path) -> Result<T>
 where
     T: de::DeserializeOwned,
 {
     from_file_inner(None, path)
 }
 
-pub fn from_file_inner<'a, T>(prefix: Option<&'a str>, path: &Path) -> Result<T>
+pub fn from_file_inner<T>(prefix: Option<&str>, path: &Path) -> Result<T>
 where
     T: de::DeserializeOwned,
 {
     let mut env = Vec::new();
 
     for pair in dotenvy::from_filename_iter(path)
-        .map_err(|e| Error::new(e))?
-        .into_iter()
+        .map_err(Error::new)?
     {
-        let (key, value) = pair.map_err(|e| Error::new(e))?;
+        let (key, value) = pair.map_err(Error::new)?;
         env.push((key, value));
     }
 
-    from_iter_inner::<T, _>(prefix, env.into_iter())
+    from_iter_inner::<T, _>(prefix, env)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::{
         env::{set_var, vars},
         fs::write,
-        io::{prelude::*, SeekFrom},
+        io::{SeekFrom, prelude::*},
     };
+
     use tempfile::NamedTempFile;
 
+    use super::*;
     use crate::Value;
 
     #[test]
@@ -186,7 +191,7 @@ mod tests {
         write(file.path(), input).unwrap();
         file.seek(SeekFrom::Start(0)).unwrap();
 
-        let env: Value = from_file(&file.path().to_path_buf()).unwrap();
+        let env: Value = from_file(file.path()).unwrap();
 
         assert_eq!(env.len(), 1);
         assert_eq!("world", env.get("hello").unwrap());
