@@ -57,7 +57,7 @@ impl std::ops::DerefMut for Value {
     }
 }
 
-impl<K,V> FromIterator<(K,V)> for Value
+impl<K, V> FromIterator<(K, V)> for Value
 where
     K: Into<String>,
     V: Into<String>,
@@ -68,14 +68,14 @@ where
     ///
     /// ```rust
     /// use serde_envfile::Value;
-    /// 
+    ///
     /// let env = Value::from_iter([("KEY1", "VALUE1"), ("KEY2", "VALUE2")]);
     /// # assert_eq!(env.get("KEY1").unwrap(), "VALUE1");
     /// # assert_eq!(env.get("KEY2").unwrap(), "VALUE2");
     /// ```
     ///
-    fn from_iter<T: IntoIterator<Item = (K,V)>>(iter: T) -> Self {
-        let iter = iter.into_iter().map(|(k,v)| (k.into(), v.into()));
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        let iter = iter.into_iter().map(|(k, v)| (k.into(), v.into()));
         Self(FromIterator::from_iter(iter))
     }
 }
@@ -92,7 +92,8 @@ mod tests {
 
         //* When
         let value_serialized = to_string(&env).expect("Failed to convert Value to String");
-        let value_deserialized = from_str::<Value>(&value_serialized).expect("Failed to deserialize Value");
+        let value_deserialized =
+            from_str::<Value>(&value_serialized).expect("Failed to deserialize Value");
 
         //* Then
         // Assert that both expected lines are present
@@ -102,7 +103,7 @@ mod tests {
 
         // Assert the deserialize output follows the order of the original input
         // when the `preserve_order` feature is enabled
-        #[cfg(feature = "preserve_order")] 
+        #[cfg(feature = "preserve_order")]
         {
             let expected_serialized = "KEY1=\"VALUE1\"\nKEY2=\"VALUE2\"";
             assert_eq!(value_serialized, expected_serialized);
