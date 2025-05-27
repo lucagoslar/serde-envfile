@@ -4,7 +4,7 @@
 //! supports both the serialization and the deserialization of environment
 //! variables from or to files (`from_file`, `to_file`), strings
 //! (`from_str`, `to_string`), or the environment of the application
-//! (`from_env`, `to_env`).
+//! (`from_env`).
 //!
 //! ## Examples
 //! Note that keys are transformed to lowercase during deserialization.
