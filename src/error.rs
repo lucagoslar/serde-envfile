@@ -1,19 +1,26 @@
-use std::fmt::{self, Display};
+use std::fmt::Display;
 
 use serde::{de, ser};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Possible errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{0}")]
     Message(String),
 
+    #[error("Unexpected end of input")]
     Eof,
+    #[error("Syntax error")]
     Syntax,
+    #[error("Expected boolean")]
     ExpectedBoolean,
+    #[error("Expected integer")]
     ExpectedInteger,
+    #[error("Tuple structs are not supported")]
     UnsupportedTupleStruct,
+    #[error("Unsupported structure in sequence")]
     UnsupportedStructureInSeq,
 }
 
@@ -37,21 +44,3 @@ impl Error {
         Self::Message(e.to_string())
     }
 }
-
-impl Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Message(msg) => formatter.write_str(msg),
-            Error::Eof => formatter.write_str("unexpected end of input"),
-            Error::Syntax => formatter.write_str("synatx error"),
-            Error::ExpectedBoolean => formatter.write_str("expected boolean"),
-            Error::ExpectedInteger => formatter.write_str("expected integer"),
-            Error::UnsupportedTupleStruct => formatter.write_str("tuple structs are not supported"),
-            Error::UnsupportedStructureInSeq => {
-                formatter.write_str("unsupported structure in sequence")
-            }
-        }
-    }
-}
-
-impl std::error::Error for Error {}
