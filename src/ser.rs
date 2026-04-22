@@ -234,7 +234,15 @@ impl serde::ser::Serializer for &mut Serializer {
             self.output += &key;
         } else if !v.is_empty() {
             self.output += "\"";
-            self.output += v;
+            for c in v.chars() {
+                match c {
+                    '\\' => self.output += r"\\",
+                    '"' => self.output += r#"\""#,
+                    '$' => self.output += r"\$",
+                    '\n' => self.output += r"\n",
+                    _ => self.output.push(c),
+                }
+            }
             self.output += "\"";
         }
         Ok(())
@@ -851,5 +859,31 @@ mod tests {
         let expected_output = "HELLO=\"WORLD\"";
         let output = std::fs::read_to_string(file.path()).expect("Failed to read file");
         assert_eq!(expected_output, output);
+    }
+
+    #[test]
+    fn serialize_escapes_special_chars() {
+        // Values containing double quotes, backslashes, dollar signs, or newlines
+        // must be escaped so the serialized output parses back into the same value.
+        let cases = [
+            ("JSON", r#"{"bar":"baz"}"#, r#"JSON="{\"bar\":\"baz\"}""#),
+            ("BACKSLASH", r"a\b", r#"BACKSLASH="a\\b""#),
+            ("DOLLAR", "price $5", r#"DOLLAR="price \$5""#),
+            ("NEWLINE", "line1\nline2", r#"NEWLINE="line1\nline2""#),
+        ];
+
+        for (key, value, expected) in cases {
+            let env = Value::from_iter([(key, value)]);
+            let output = to_string(&env).expect("Failed to serialize to string");
+            assert_eq!(expected, &output, "escaping differs for {key}");
+
+            let deserialized: Value = from_str(&output).expect("Failed to round-trip");
+            // Deserialization lowercases keys.
+            assert_eq!(
+                deserialized.get(&key.to_lowercase()).map(|s| s.as_str()),
+                Some(value),
+                "round-trip value mismatch for {key}"
+            );
+        }
     }
 }
