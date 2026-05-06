@@ -64,7 +64,7 @@ use super::{
 ///     Ok(())
 /// }
 /// ```
-pub fn prefixed(prefix: &str) -> Prefixed {
+pub fn prefixed<'a>(prefix: &'a str) -> Prefixed<'a> {
     Prefixed(prefix)
 }
 
