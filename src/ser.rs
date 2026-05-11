@@ -45,16 +45,13 @@ impl Serializer {
         }
     }
 
-    fn build_key(&self) -> String {
-        match &self.base_prefix {
-            Some(s) => format!("{}{}", s, self.prefix.join("_")),
-            None => self.prefix.join("_"),
-        }
-    }
-
     fn write_pending_key(&mut self) {
         if self.pending_key {
-            let key = self.build_key();
+            let key = match &self.base_prefix {
+                Some(s) => format!("{}{}", s, self.prefix.join("_")),
+                None => self.prefix.join("_"),
+            };
+
             self.output += &key;
             self.output += "=";
             self.pending_key = false;
