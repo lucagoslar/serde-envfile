@@ -93,12 +93,11 @@ pub fn to_string_inner<T>(prefix: Option<&str>, v: &T) -> Result<String>
 where
     T: serde::ser::Serialize,
 {
-    let vec = Vec::with_capacity(128);
-    let mut serializer = Serializer::new(prefix, vec);
+    let mut vec = Vec::with_capacity(128);
+    let mut serializer = Serializer::new(prefix, &mut vec);
     v.serialize(&mut serializer)?;
-    let out = serializer.into_inner();
     // Safe because we do not emit invalid UTF-8.
-    Ok(unsafe { String::from_utf8_unchecked(out) })
+    Ok(unsafe { String::from_utf8_unchecked(vec) })
 }
 
 /// Serialize data to a writer that implements `std::io::Write`.
