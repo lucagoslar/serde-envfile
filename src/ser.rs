@@ -21,7 +21,7 @@ pub struct Serializer<W> {
     base_prefix: Option<String>,
     prefix: Vec<String>,
     key: bool,
-    sequence: SeqState,
+    seq_state: SeqState,
     pending_key: bool,
     first: bool,
 }
@@ -41,7 +41,7 @@ impl<W: std::io::Write> Serializer<W> {
                 .filter(|s| !s.is_empty()),
             prefix: Vec::new(),
             key: false,
-            sequence: SeqState::NotSeq,
+            seq_state: SeqState::NotSeq,
             pending_key: false,
             first: true,
         }
@@ -338,7 +338,7 @@ where
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize newtype struct variant: {}", variant);
-        let SeqState::NotSeq = self.sequence else {
+        let SeqState::NotSeq = self.seq_state else {
             return value.serialize(&mut *self);
         };
 
@@ -352,10 +352,10 @@ where
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
         debug!("serialize sequence");
-        let SeqState::NotSeq = self.sequence else {
+        let SeqState::NotSeq = self.seq_state else {
             return Err(Error::UnsupportedStructureInSeq);
         };
-        self.sequence = SeqState::First;
+        self.seq_state = SeqState::First;
         Ok(self)
     }
 
@@ -386,7 +386,7 @@ where
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
         debug!("serialize map");
-        let SeqState::NotSeq = self.sequence else {
+        let SeqState::NotSeq = self.seq_state else {
             return Err(Error::UnsupportedStructureInSeq);
         };
         Ok(self)
@@ -421,8 +421,8 @@ where
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serializing sequence element");
-        match self.sequence {
-            SeqState::First => self.sequence = SeqState::Rest,
+        match self.seq_state {
+            SeqState::First => self.seq_state = SeqState::Rest,
             SeqState::Rest => {
                 self.writer.write_all(b",")?;
             }
@@ -434,7 +434,7 @@ where
 
     fn end(self) -> Result<()> {
         debug!("ended serializing sequence element");
-        self.sequence = SeqState::NotSeq;
+        self.seq_state = SeqState::NotSeq;
         Ok(())
     }
 }
@@ -451,8 +451,8 @@ where
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple element");
-        match self.sequence {
-            SeqState::First => self.sequence = SeqState::Rest,
+        match self.seq_state {
+            SeqState::First => self.seq_state = SeqState::Rest,
             SeqState::Rest => {
                 self.writer.write_all(b",")?;
             }
@@ -465,7 +465,7 @@ where
 
     fn end(self) -> Result<()> {
         debug!("ended serializing tuple element");
-        self.sequence = SeqState::NotSeq;
+        self.seq_state = SeqState::NotSeq;
         Ok(())
     }
 }
@@ -482,8 +482,8 @@ where
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple struct field");
-        match self.sequence {
-            SeqState::First => self.sequence = SeqState::Rest,
+        match self.seq_state {
+            SeqState::First => self.seq_state = SeqState::Rest,
             SeqState::Rest => {
                 self.writer.write_all(b",")?;
             }
@@ -496,7 +496,7 @@ where
 
     fn end(self) -> Result<()> {
         debug!("ended serializing tuple struct field");
-        self.sequence = SeqState::NotSeq;
+        self.seq_state = SeqState::NotSeq;
         Ok(())
     }
 }
@@ -513,8 +513,8 @@ where
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple variant field");
-        match self.sequence {
-            SeqState::First => self.sequence = SeqState::Rest,
+        match self.seq_state {
+            SeqState::First => self.seq_state = SeqState::Rest,
             SeqState::Rest => {
                 self.writer.write_all(b",")?;
             }
@@ -526,7 +526,7 @@ where
 
     fn end(self) -> Result<()> {
         debug!("ended serializing tuple variant field");
-        self.sequence = SeqState::NotSeq;
+        self.seq_state = SeqState::NotSeq;
         Ok(())
     }
 }
@@ -621,7 +621,7 @@ fn serialize_map_struct_key<T, W: std::io::Write>(ser: &'_ mut Serializer<W>, ke
 where
     T: ?Sized + serde::ser::Serialize,
 {
-    let SeqState::NotSeq = ser.sequence else {
+    let SeqState::NotSeq = ser.seq_state else {
         return Err(Error::UnsupportedStructureInSeq);
     };
 
@@ -639,7 +639,7 @@ fn serialize_map_struct_value<T, W: std::io::Write>(
 where
     T: ?Sized + serde::ser::Serialize,
 {
-    let SeqState::NotSeq = ser.sequence else {
+    let SeqState::NotSeq = ser.seq_state else {
         return Err(Error::UnsupportedStructureInSeq);
     };
 
