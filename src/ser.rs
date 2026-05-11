@@ -18,7 +18,7 @@ cfg_if::cfg_if! {
 /// A serializer to transform Rust data into environment variables.
 pub struct Serializer {
     output: String,
-    base_prefix: String,
+    base_prefix: Option<String>,
     prefix: Vec<String>,
     key: bool,
     sequence: bool,
@@ -26,10 +26,12 @@ pub struct Serializer {
 }
 
 impl Serializer {
-    fn new(prefix: Option<&str>) -> Self {
+    fn new<T: AsRef<str>>(prefix: Option<T>) -> Self {
         Self {
             output: String::new(),
-            base_prefix: prefix.unwrap_or("").to_uppercase(),
+            base_prefix: prefix
+                .map(|s| s.as_ref().to_uppercase())
+                .filter(|s| !s.is_empty()),
             prefix: Vec::new(),
             key: false,
             sequence: false,
@@ -44,12 +46,10 @@ impl Serializer {
     }
 
     fn build_key(&self) -> String {
-        let base = self.base_prefix.trim_end_matches('_');
-        std::iter::once(base)
-            .filter(|s| !s.is_empty())
-            .chain(self.prefix.iter().map(|s| s.as_str()))
-            .collect::<Vec<_>>()
-            .join("_")
+        match &self.base_prefix {
+            Some(s) => format!("{}{}", s, self.prefix.join("_")),
+            None => self.prefix.join("_"),
+        }
     }
 
     fn write_pending_key(&mut self) {
@@ -556,7 +556,7 @@ impl serde::ser::SerializeStructVariant for &mut Serializer {
     }
 }
 
-fn serialize_field<T>(ser: &'_ mut &'_ mut Serializer, key: &'static str, value: &T) -> Result<()>
+fn serialize_field<T>(ser: &'_ mut Serializer, key: &'static str, value: &T) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
@@ -565,7 +565,7 @@ where
     Ok(())
 }
 
-fn serialize_map_struct_key<T>(ser: &'_ mut &'_ mut Serializer, key: &T) -> Result<()>
+fn serialize_map_struct_key<T>(ser: &'_ mut Serializer, key: &T) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
@@ -574,13 +574,13 @@ where
     }
 
     ser.key = true;
-    key.serialize(&mut **ser)?;
+    key.serialize(&mut *ser)?;
     ser.key = false;
     ser.pending_key = true;
     Ok(())
 }
 
-fn serialize_map_struct_value<T>(ser: &'_ mut &'_ mut Serializer, value: &T) -> Result<()>
+fn serialize_map_struct_value<T>(ser: &'_ mut Serializer, value: &T) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
@@ -588,7 +588,7 @@ where
         return Err(Error::UnsupportedStructureInSeq);
     }
 
-    value.serialize(&mut **ser)?;
+    value.serialize(&mut *ser)?;
     ser.output += "\n";
 
     ser.prefix.pop();
