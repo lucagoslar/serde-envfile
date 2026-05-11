@@ -22,6 +22,8 @@ pub enum Error {
     UnsupportedTupleStruct,
     #[error("Unsupported structure in sequence")]
     UnsupportedStructureInSeq,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 impl ser::Error for Error {

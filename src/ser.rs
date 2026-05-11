@@ -16,46 +16,57 @@ cfg_if::cfg_if! {
 }
 
 /// A serializer to transform Rust data into environment variables.
-pub struct Serializer {
-    output: String,
+pub struct Serializer<W> {
+    writer: W,
     base_prefix: Option<String>,
     prefix: Vec<String>,
     key: bool,
-    sequence: bool,
+    sequence: SeqState,
     pending_key: bool,
+    first: bool,
 }
 
-impl Serializer {
-    fn new<T: AsRef<str>>(prefix: Option<T>) -> Self {
+enum SeqState {
+    NotSeq,
+    First,
+    Rest,
+}
+
+impl<W: std::io::Write> Serializer<W> {
+    fn new<T: AsRef<str>>(prefix: Option<T>, writer: W) -> Self {
         Self {
-            output: String::new(),
+            writer: writer,
             base_prefix: prefix
                 .map(|s| s.as_ref().to_uppercase())
                 .filter(|s| !s.is_empty()),
             prefix: Vec::new(),
             key: false,
-            sequence: false,
+            sequence: SeqState::NotSeq,
             pending_key: false,
+            first: true,
         }
     }
 
-    pub(crate) fn strip_line_breaks(&mut self) {
-        while self.output.ends_with('\n') {
-            self.output.pop();
-        }
+    pub fn into_inner(self) -> W {
+        self.writer
     }
 
-    fn write_pending_key(&mut self) {
+    fn write_pending_key(&mut self) -> Result<()> {
         if self.pending_key {
             let key = match &self.base_prefix {
                 Some(s) => format!("{}{}", s, self.prefix.join("_")),
                 None => self.prefix.join("_"),
             };
-
-            self.output += &key;
-            self.output += "=";
+            if self.first {
+                self.first = false
+            } else {
+                self.writer.write_all(b"\n")?;
+            }
+            self.writer.write_all(&key.as_bytes())?;
+            self.writer.write_all(b"=")?;
             self.pending_key = false;
-        }
+        };
+        Ok(())
     }
 }
 
@@ -82,10 +93,12 @@ pub fn to_string_inner<T>(prefix: Option<&str>, v: &T) -> Result<String>
 where
     T: serde::ser::Serialize,
 {
-    let mut serializer = Serializer::new(prefix);
+    let vec = Vec::with_capacity(128);
+    let mut serializer = Serializer::new(prefix, vec);
     v.serialize(&mut serializer)?;
-
-    Ok(serializer.output)
+    let out = serializer.into_inner();
+    // Safe because we do not emit invalid UTF-8.
+    Ok(unsafe { String::from_utf8_unchecked(out) })
 }
 
 /// Serialize data to a writer that implements `std::io::Write`.
@@ -112,14 +125,13 @@ where
     to_writer_inner(None, writer, v)
 }
 
-pub(crate) fn to_writer_inner<W, T>(prefix: Option<&str>, mut writer: W, v: &T) -> Result<()>
+pub(crate) fn to_writer_inner<W, T>(prefix: Option<&str>, writer: W, v: &T) -> Result<()>
 where
     W: std::io::Write,
     T: serde::ser::Serialize,
 {
-    writer
-        .write_all(to_string_inner(prefix, v)?.as_bytes())
-        .map_err(Error::new)
+    let mut serializer = Serializer::new(prefix, writer);
+    v.serialize(&mut serializer)
 }
 
 /// Serialize data into an environment variable file.
@@ -152,7 +164,10 @@ where
     to_writer_inner(prefix, file, v)
 }
 
-impl serde::ser::Serializer for &mut Serializer {
+impl<W> serde::ser::Serializer for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -166,8 +181,8 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_bool(self, v: bool) -> Result<()> {
         debug!("serialize bool: {}", v);
-        self.write_pending_key();
-        self.output += if v { "true" } else { "false" };
+        self.write_pending_key()?;
+        self.writer.write_all(if v { b"true" } else { b"false" })?;
         Ok(())
     }
 
@@ -188,8 +203,8 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_i64(self, v: i64) -> Result<()> {
         debug!("serialize i64: {}", v);
-        self.write_pending_key();
-        self.output += &v.to_string();
+        self.write_pending_key()?;
+        self.writer.write_all(&v.to_string().as_bytes())?;
         Ok(())
     }
 
@@ -210,8 +225,8 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_u64(self, v: u64) -> Result<()> {
         debug!("serialize u64: {}", v);
-        self.write_pending_key();
-        self.output += &v.to_string();
+        self.write_pending_key()?;
+        self.writer.write_all(&v.to_string().as_bytes())?;
         Ok(())
     }
 
@@ -222,8 +237,8 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_f64(self, v: f64) -> Result<()> {
         debug!("serialize f64: {}", v);
-        self.write_pending_key();
-        self.output += &v.to_string();
+        self.write_pending_key()?;
+        self.writer.write_all(v.to_string().as_bytes())?;
         Ok(())
     }
 
@@ -246,22 +261,22 @@ impl serde::ser::Serializer for &mut Serializer {
             }
             self.prefix.push(upper);
         } else if !v.is_empty() {
-            self.write_pending_key();
-            self.output += "\"";
-
+            self.write_pending_key()?;
+            self.writer.write_all(b"\"")?;
+            let mut b = [0; 4];
             for char in v.chars() {
                 match char {
                     '\n' => {
-                        self.output.push_str("\\n");
+                        self.writer.write_all(b"\\n")?;
                         continue;
                     }
-                    '\\' | '"' | '$' => self.output.push('\\'),
+                    '\\' | '"' | '$' => self.writer.write_all(&[b'\\'])?,
                     _ => (),
                 }
-                self.output.push(char);
+                
+                self.writer.write_all(char.encode_utf8(&mut b).as_bytes())?;
             }
-
-            self.output += "\"";
+            self.writer.write_all(b"\"")?;
         }
         Ok(())
     }
@@ -286,7 +301,7 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_unit(self) -> Result<()> {
         debug!("serialize unit");
-        self.write_pending_key();
+        self.write_pending_key()?;
         Ok(())
     }
 
@@ -324,25 +339,24 @@ impl serde::ser::Serializer for &mut Serializer {
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize newtype struct variant: {}", variant);
-        if self.sequence {
+        let SeqState::NotSeq = self.sequence else {
             return value.serialize(&mut *self);
-        }
+        };
 
         self.key = true;
         variant.serialize(&mut *self)?;
         self.key = false;
-        self.output += "=";
+        self.writer.write_all(b"=")?;
         value.serialize(&mut *self)?;
-        self.output += "\n";
         Ok(())
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
         debug!("serialize sequence");
-        if self.sequence {
+        let SeqState::NotSeq = self.sequence else {
             return Err(Error::UnsupportedStructureInSeq);
-        }
-        self.sequence = true;
+        };
+        self.sequence = SeqState::First;
         Ok(self)
     }
 
@@ -373,9 +387,9 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
         debug!("serialize map");
-        if self.sequence {
+        let SeqState::NotSeq = self.sequence else {
             return Err(Error::UnsupportedStructureInSeq);
-        }
+        };
         Ok(self)
     }
 
@@ -396,7 +410,10 @@ impl serde::ser::Serializer for &mut Serializer {
     }
 }
 
-impl serde::ser::SerializeSeq for &mut Serializer {
+impl<W> serde::ser::SerializeSeq for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -405,21 +422,28 @@ impl serde::ser::SerializeSeq for &mut Serializer {
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serializing sequence element");
+        match self.sequence {
+            SeqState::First => self.sequence = SeqState::Rest,
+            SeqState::Rest => {
+                self.writer.write_all(b",")?;
+            }
+            SeqState::NotSeq => unreachable!(),
+        }
         let r = value.serialize(&mut **self);
-        self.output += ",";
         r
     }
 
     fn end(self) -> Result<()> {
         debug!("ended serializing sequence element");
-        self.output.pop();
-        self.sequence = false;
-        self.strip_line_breaks();
+        self.sequence = SeqState::NotSeq;
         Ok(())
     }
 }
 
-impl serde::ser::SerializeTuple for &mut Serializer {
+impl<W> serde::ser::SerializeTuple for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -428,21 +452,29 @@ impl serde::ser::SerializeTuple for &mut Serializer {
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple element");
+        match self.sequence {
+            SeqState::First => self.sequence = SeqState::Rest,
+            SeqState::Rest => {
+                self.writer.write_all(b",")?;
+            }
+            SeqState::NotSeq => unreachable!(),
+        }
+
         let r = value.serialize(&mut **self);
-        self.output += ",";
         r
     }
 
     fn end(self) -> Result<()> {
         debug!("ended serializing tuple element");
-        self.output.pop();
-        self.sequence = false;
-        self.strip_line_breaks();
+        self.sequence = SeqState::NotSeq;
         Ok(())
     }
 }
 
-impl serde::ser::SerializeTupleStruct for &mut Serializer {
+impl<W> serde::ser::SerializeTupleStruct for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -451,20 +483,29 @@ impl serde::ser::SerializeTupleStruct for &mut Serializer {
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple struct field");
+        match self.sequence {
+            SeqState::First => self.sequence = SeqState::Rest,
+            SeqState::Rest => {
+                self.writer.write_all(b",")?;
+            }
+            SeqState::NotSeq => unreachable!(),
+        }
+
         let r = value.serialize(&mut **self);
-        self.output += ",";
         r
     }
 
     fn end(self) -> Result<()> {
         debug!("ended serializing tuple struct field");
-        self.output.pop();
-        self.sequence = false;
+        self.sequence = SeqState::NotSeq;
         Ok(())
     }
 }
 
-impl serde::ser::SerializeTupleVariant for &mut Serializer {
+impl<W> serde::ser::SerializeTupleVariant for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -473,20 +514,28 @@ impl serde::ser::SerializeTupleVariant for &mut Serializer {
         T: ?Sized + serde::ser::Serialize,
     {
         debug!("serialize tuple variant field");
+        match self.sequence {
+            SeqState::First => self.sequence = SeqState::Rest,
+            SeqState::Rest => {
+                self.writer.write_all(b",")?;
+            }
+            SeqState::NotSeq => unreachable!(),
+        }
         let r = value.serialize(&mut **self);
-        self.output += ",";
         r
     }
 
     fn end(self) -> Result<()> {
         debug!("ended serializing tuple variant field");
-        self.output.pop();
-        self.sequence = false;
+        self.sequence = SeqState::NotSeq;
         Ok(())
     }
 }
 
-impl serde::ser::SerializeMap for &mut Serializer {
+impl<W> serde::ser::SerializeMap for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -508,12 +557,14 @@ impl serde::ser::SerializeMap for &mut Serializer {
 
     fn end(self) -> Result<()> {
         debug!("ended serializing map");
-        self.strip_line_breaks();
         Ok(())
     }
 }
 
-impl serde::ser::SerializeStruct for &mut Serializer {
+impl<W> serde::ser::SerializeStruct for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -528,12 +579,14 @@ impl serde::ser::SerializeStruct for &mut Serializer {
 
     fn end(self) -> Result<()> {
         debug!("ended serializing struct field");
-        self.strip_line_breaks();
         Ok(())
     }
 }
 
-impl serde::ser::SerializeStructVariant for &mut Serializer {
+impl<W> serde::ser::SerializeStructVariant for &mut Serializer<W>
+where
+    W: std::io::Write,
+{
     type Ok = ();
     type Error = Error;
 
@@ -548,27 +601,30 @@ impl serde::ser::SerializeStructVariant for &mut Serializer {
 
     fn end(self) -> Result<()> {
         debug!("ended serializing struct variant");
-        self.strip_line_breaks();
         Ok(())
     }
 }
 
-fn serialize_field<T>(ser: &'_ mut Serializer, key: &'static str, value: &T) -> Result<()>
+fn serialize_field<T, W: std::io::Write>(
+    ser: &'_ mut Serializer<W>,
+    key: &'static str,
+    value: &T,
+) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
     serialize_map_struct_key(ser, key)?;
-    serialize_map_struct_value::<T>(ser, value)?;
+    serialize_map_struct_value::<T, W>(ser, value)?;
     Ok(())
 }
 
-fn serialize_map_struct_key<T>(ser: &'_ mut Serializer, key: &T) -> Result<()>
+fn serialize_map_struct_key<T, W: std::io::Write>(ser: &'_ mut Serializer<W>, key: &T) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
-    if ser.sequence {
+    let SeqState::NotSeq = ser.sequence else {
         return Err(Error::UnsupportedStructureInSeq);
-    }
+    };
 
     ser.key = true;
     key.serialize(&mut *ser)?;
@@ -577,16 +633,19 @@ where
     Ok(())
 }
 
-fn serialize_map_struct_value<T>(ser: &'_ mut Serializer, value: &T) -> Result<()>
+fn serialize_map_struct_value<T, W: std::io::Write>(
+    ser: &'_ mut Serializer<W>,
+    value: &T,
+) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
-    if ser.sequence {
+    let SeqState::NotSeq = ser.sequence else {
         return Err(Error::UnsupportedStructureInSeq);
-    }
+    };
 
     value.serialize(&mut *ser)?;
-    ser.output += "\n";
+    // ser.writer += "\n";
 
     ser.prefix.pop();
     ser.pending_key = false;
