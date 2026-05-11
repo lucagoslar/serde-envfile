@@ -19,10 +19,10 @@ cfg_if::cfg_if! {
 pub struct Serializer {
     output: String,
     base_prefix: String,
-    prefix: String,
+    prefix: Vec<String>,
     key: bool,
     sequence: bool,
-    prefix_before: String,
+    pending_key: bool,
 }
 
 impl Serializer {
@@ -30,16 +30,36 @@ impl Serializer {
         Self {
             output: String::new(),
             base_prefix: prefix.unwrap_or("").to_uppercase(),
-            prefix: "".into(),
+            prefix: Vec::new(),
             key: false,
             sequence: false,
-            prefix_before: "".into(),
+            pending_key: false,
         }
     }
 
     pub(crate) fn strip_line_breaks(&mut self) {
         while self.output.ends_with('\n') {
-            self.output = self.output[..self.output.len() - 1].into();
+            self.output.pop();
+        }
+    }
+
+    fn build_key(&self) -> String {
+        let mut key = self.base_prefix.clone();
+        for part in &self.prefix {
+            if !key.is_empty() && !key.ends_with('_') {
+                key.push('_');
+            }
+            key.push_str(part);
+        }
+        key
+    }
+
+    fn write_pending_key(&mut self) {
+        if self.pending_key {
+            let key = self.build_key();
+            self.output += &key;
+            self.output += "=";
+            self.pending_key = false;
         }
     }
 }
@@ -151,6 +171,7 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_bool(self, v: bool) -> Result<()> {
         debug!("serialize bool: {}", v);
+        self.write_pending_key();
         self.output += if v { "true" } else { "false" };
         Ok(())
     }
@@ -172,6 +193,7 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_i64(self, v: i64) -> Result<()> {
         debug!("serialize i64: {}", v);
+        self.write_pending_key();
         self.output += &v.to_string();
         Ok(())
     }
@@ -193,6 +215,7 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_u64(self, v: u64) -> Result<()> {
         debug!("serialize u64: {}", v);
+        self.write_pending_key();
         self.output += &v.to_string();
         Ok(())
     }
@@ -204,6 +227,7 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_f64(self, v: f64) -> Result<()> {
         debug!("serialize f64: {}", v);
+        self.write_pending_key();
         self.output += &v.to_string();
         Ok(())
     }
@@ -217,22 +241,17 @@ impl serde::ser::Serializer for &mut Serializer {
         debug!("serialize &str: {}", v);
 
         if self.key {
-            let mut key = self.base_prefix.clone();
-            if !self.prefix.is_empty() {
-                self.prefix.push('_');
-            }
-            self.prefix += &v.to_uppercase();
-            key += &self.prefix;
-            if key.find(' ').is_some()
-                || key.find('#').is_some()
-                || key.find('\"').is_some()
-                || key.find('\'').is_some()
+            let upper = v.to_uppercase();
+            if upper.contains(' ')
+                || upper.contains('#')
+                || upper.contains('\"')
+                || upper.contains('\'')
             {
                 return Err(Error::Syntax);
             }
-
-            self.output += &key;
+            self.prefix.push(upper);
         } else if !v.is_empty() {
+            self.write_pending_key();
             self.output += "\"";
 
             for char in v.chars() {
@@ -272,6 +291,7 @@ impl serde::ser::Serializer for &mut Serializer {
 
     fn serialize_unit(self) -> Result<()> {
         debug!("serialize unit");
+        self.write_pending_key();
         Ok(())
     }
 
@@ -555,16 +575,10 @@ where
         return Err(Error::UnsupportedStructureInSeq);
     }
 
-    ser.prefix_before = ser.prefix.clone();
-
-    let prefix = format!("{}{}", ser.prefix, '=');
-    if ser.output.ends_with(&prefix) {
-        ser.output = ser.output[..ser.output.len() - prefix.len()].into();
-    }
-
     ser.key = true;
     key.serialize(&mut **ser)?;
     ser.key = false;
+    ser.pending_key = true;
     Ok(())
 }
 
@@ -576,13 +590,11 @@ where
         return Err(Error::UnsupportedStructureInSeq);
     }
 
-    let saved_prefix = ser.prefix_before.clone();
-
-    ser.output += "=";
     value.serialize(&mut **ser)?;
     ser.output += "\n";
 
-    ser.prefix = saved_prefix;
+    ser.prefix.pop();
+    ser.pending_key = false;
     Ok(())
 }
 
