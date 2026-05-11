@@ -44,14 +44,12 @@ impl Serializer {
     }
 
     fn build_key(&self) -> String {
-        let mut key = self.base_prefix.clone();
-        for part in &self.prefix {
-            if !key.is_empty() && !key.ends_with('_') {
-                key.push('_');
-            }
-            key.push_str(part);
-        }
-        key
+        let base = self.base_prefix.trim_end_matches('_');
+        std::iter::once(base)
+            .filter(|s| !s.is_empty())
+            .chain(self.prefix.iter().map(|s| s.as_str()))
+            .collect::<Vec<_>>()
+            .join("_")
     }
 
     fn write_pending_key(&mut self) {
