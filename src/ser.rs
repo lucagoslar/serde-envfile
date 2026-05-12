@@ -604,7 +604,7 @@ where
     }
 }
 
-fn serialize_field<T, W: std::io::Write>(
+fn serialize_field<W: std::io::Write, T>(
     ser: &'_ mut Serializer<W>,
     key: &'static str,
     value: &T,
@@ -613,11 +613,11 @@ where
     T: ?Sized + serde::ser::Serialize,
 {
     serialize_map_struct_key(ser, key)?;
-    serialize_map_struct_value::<T, W>(ser, value)?;
+    serialize_map_struct_value::<W, T>(ser, value)?;
     Ok(())
 }
 
-fn serialize_map_struct_key<T, W: std::io::Write>(ser: &'_ mut Serializer<W>, key: &T) -> Result<()>
+fn serialize_map_struct_key<W: std::io::Write, T>(ser: &'_ mut Serializer<W>, key: &T) -> Result<()>
 where
     T: ?Sized + serde::ser::Serialize,
 {
@@ -632,7 +632,7 @@ where
     Ok(())
 }
 
-fn serialize_map_struct_value<T, W: std::io::Write>(
+fn serialize_map_struct_value<W: std::io::Write, T>(
     ser: &'_ mut Serializer<W>,
     value: &T,
 ) -> Result<()>
