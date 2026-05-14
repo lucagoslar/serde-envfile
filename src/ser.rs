@@ -234,7 +234,19 @@ impl serde::ser::Serializer for &mut Serializer {
             self.output += &key;
         } else if !v.is_empty() {
             self.output += "\"";
-            self.output += v;
+
+            for char in v.chars() {
+                match char {
+                    '\n' => {
+                        self.output.push_str("\\n");
+                        continue;
+                    }
+                    '\\' | '"' | '$' => self.output.push('\\'),
+                    _ => (),
+                }
+                self.output.push(char);
+            }
+
             self.output += "\"";
         }
         Ok(())
@@ -720,7 +732,8 @@ mod tests {
         assert_eq!(expected, &output);
 
         // Assert the deserialized value is equal to the original value
-        let deserialized = from_str::<NumberTest>(&output).expect("Failed to deserialize to struct");
+        let deserialized =
+            from_str::<NumberTest>(&output).expect("Failed to deserialize to struct");
         assert_eq!(deserialized, env);
     }
 
@@ -770,7 +783,8 @@ mod tests {
 
         // Assert the deserialized value is equal to the original value
         // NOTE: envy deserializes "" with Some()
-        let deserialized = from_str::<OptionTest>(&output).expect("Failed to deserialize to struct");
+        let deserialized =
+            from_str::<OptionTest>(&output).expect("Failed to deserialize to struct");
         assert_eq!(deserialized.a, env.a);
     }
 
@@ -841,8 +855,8 @@ mod tests {
         //* Given
         let env = Value::from_iter([("HELLO", "WORLD")]);
 
-        // Create a temp file in the system's temp directory, so if the test fails, the file does not clutter the current directory
-        let file = tempfile::NamedTempFile::new_in(std::env::temp_dir()).expect("Failed to create temp file");
+        let file = tempfile::NamedTempFile::new_in(std::env::temp_dir())
+            .expect("Failed to create temp file");
 
         //* When
         to_file(&file.path(), &env).expect("Failed to serialize to file");
@@ -851,5 +865,39 @@ mod tests {
         let expected_output = "HELLO=\"WORLD\"";
         let output = std::fs::read_to_string(file.path()).expect("Failed to read file");
         assert_eq!(expected_output, output);
+    }
+
+    #[test]
+    fn serialize_and_escape() {
+        let mut env = Value::new();
+        env.extend(
+            vec![
+                ("KEY", r"spaced value"),
+                ("KEY2", r"value containing a $sign"),
+                ("KEY3", r#"value containing a "quoted" value"#),
+                ("KEY4", r"complex $\val'ue"),
+                ("KEY5", r#"'"another\ complex value"#),
+                ("KEY6", "value"),
+                ("KEY7", "line 1\nline 2"),
+                ("KEY8", "{\"hello\":\"world\"}"),
+                (
+                    "KEY9",
+                    "-----BEGIN PRIVATE KEY-----
+-----END PRIVATE KEY-----",
+                ),
+                ("KEY10", "${KEY}"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<Vec<(String, String)>>(),
+        );
+
+        let output = to_string(&env).unwrap();
+
+        let parsed: Value = from_str(&output).unwrap();
+
+        for (key, value) in env.iter() {
+            assert_eq!(value, parsed.get(&key.to_ascii_lowercase()).unwrap());
+        }
     }
 }
