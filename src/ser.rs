@@ -576,11 +576,13 @@ where
         return Err(Error::UnsupportedStructureInSeq);
     }
 
+    let prefix_before = ser.prefix_before.clone();
+
     ser.output += "=";
     value.serialize(&mut **ser)?;
     ser.output += "\n";
 
-    ser.prefix = ser.prefix_before.clone();
+    ser.prefix = prefix_before;
     Ok(())
 }
 
@@ -613,26 +615,37 @@ mod tests {
     fn serialize_to_string_struct() {
         //* Given
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct StructTestNestedNested {
+            e: u8,
+        }
+
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct StructTestNested {
             c: u8,
+            d: StructTestNestedNested,
         }
 
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct StructTest {
             a: u8,
             b: StructTestNested,
+            f: u8,
         }
 
         let env = StructTest {
             a: 1,
-            b: StructTestNested { c: 2 },
+            b: StructTestNested {
+                c: 2,
+                d: StructTestNestedNested { e: 3 },
+            },
+            f: 4,
         };
 
         //* When
         let output = to_string(&env).expect("Failed to serialize to string");
 
         //* Then
-        assert_eq!("A=1\nB_C=2", output);
+        assert_eq!("A=1\nB_C=2\nB_D_E=3\nF=4", output);
     }
 
     #[test]
