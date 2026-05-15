@@ -62,7 +62,7 @@ impl<W: std::io::Write> Serializer<W> {
             } else {
                 self.writer.write_all(b"\n")?;
             }
-            self.writer.write_all(&key.as_bytes())?;
+            self.writer.write_all(key.as_bytes())?;
             self.writer.write_all(b"=")?;
             self.pending_key = false;
         };
@@ -203,7 +203,7 @@ where
     fn serialize_i64(self, v: i64) -> Result<()> {
         debug!("serialize i64: {}", v);
         self.write_pending_key()?;
-        self.writer.write_all(&v.to_string().as_bytes())?;
+        self.writer.write_all(v.to_string().as_bytes())?;
         Ok(())
     }
 
@@ -225,7 +225,7 @@ where
     fn serialize_u64(self, v: u64) -> Result<()> {
         debug!("serialize u64: {}", v);
         self.write_pending_key()?;
-        self.writer.write_all(&v.to_string().as_bytes())?;
+        self.writer.write_all(v.to_string().as_bytes())?;
         Ok(())
     }
 
@@ -269,10 +269,10 @@ where
                         self.writer.write_all(b"\\n")?;
                         continue;
                     }
-                    '\\' | '"' | '$' => self.writer.write_all(&[b'\\'])?,
+                    '\\' | '"' | '$' => self.writer.write_all(b"\\")?,
                     _ => (),
                 }
-                
+
                 self.writer.write_all(char.encode_utf8(&mut b).as_bytes())?;
             }
             self.writer.write_all(b"\"")?;
