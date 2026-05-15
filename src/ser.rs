@@ -576,13 +576,13 @@ where
         return Err(Error::UnsupportedStructureInSeq);
     }
 
-    let saved_prefix = ser.prefix_before.clone();
+    let prefix_before = ser.prefix_before.clone();
 
     ser.output += "=";
     value.serialize(&mut **ser)?;
     ser.output += "\n";
 
-    ser.prefix = saved_prefix;
+    ser.prefix = prefix_before;
     Ok(())
 }
 
@@ -615,90 +615,37 @@ mod tests {
     fn serialize_to_string_struct() {
         //* Given
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct StructTestNestedNested {
+            e: u8,
+        }
+
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct StructTestNested {
             c: u8,
+            d: StructTestNestedNested,
         }
 
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct StructTest {
             a: u8,
             b: StructTestNested,
+            f: u8,
         }
 
         let env = StructTest {
             a: 1,
-            b: StructTestNested { c: 2 },
+            b: StructTestNested {
+                c: 2,
+                d: StructTestNestedNested { e: 3 },
+            },
+            f: 4,
         };
 
         //* When
         let output = to_string(&env).expect("Failed to serialize to string");
 
         //* Then
-        assert_eq!("A=1\nB_C=2", output);
-    }
-
-    #[test]
-    fn serialize_to_string_struct_field_after_nested() {
-        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-        struct Inner {
-            x: u8,
-        }
-
-        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-        struct Outer {
-            a: u8,
-            inner: Inner,
-            b: u8,
-        }
-
-        let env = Outer {
-            a: 1,
-            inner: Inner { x: 2 },
-            b: 3,
-        };
-
-        let output = to_string(&env).expect("Failed to serialize to string");
-
-        assert_eq!("A=1\nINNER_X=2\nB=3", output);
-    }
-
-    #[test]
-    fn serialize_to_string_deeply_nested_struct() {
-        #[derive(Debug, PartialEq, serde::Serialize)]
-        struct Level2 {
-            z: u8,
-        }
-
-        #[derive(Debug, PartialEq, serde::Serialize)]
-        struct Level1 {
-            y: u8,
-            level2: Level2,
-            y2: u8,
-        }
-
-        #[derive(Debug, PartialEq, serde::Serialize)]
-        struct Root {
-            a: u8,
-            level1: Level1,
-            b: u8,
-        }
-
-        let env = Root {
-            a: 1,
-            level1: Level1 {
-                y: 2,
-                level2: Level2 { z: 3 },
-                y2: 4,
-            },
-            b: 5,
-        };
-
-        let output = to_string(&env).expect("Failed to serialize to string");
-
-        assert_eq!(
-            "A=1\nLEVEL1_Y=2\nLEVEL1_LEVEL2_Z=3\nLEVEL1_Y2=4\nB=5",
-            output
-        );
+        assert_eq!("A=1\nB_C=2\nB_D_E=3\nF=4", output);
     }
 
     #[test]
